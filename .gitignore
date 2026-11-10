@@ -1,0 +1,15 @@
+# Llave criptográfica local
+llave_secreta.key
+*.key
+
+# Base de datos vectorial local (ChromaDB)
+chroma_db/
+*.sqlite3
+*.bin
+
+# Caché de Python
+__pycache__/
+*.py[cod]
+
+# Configuración del editor
+.vscode/
