@@ -229,12 +229,6 @@ class AplicacionBiblioteca:
         ttk.Button(frame_botones, text="🔄 Refrescar Catálogo", command=self.evento_mostrar_todas_personas).pack(side="left", padx=5)
         ttk.Button(frame_botones, text="📚 Ver con Préstamos", command=lambda: self.notebook.select(self.tab_prestamos)).pack(side="left", padx=5)
 
-        # Búsqueda: ID, nombre, correo, teléfono o tipo de usuario
-        self.ent_buscar_persona = ttk.Entry(frame_botones, width=30)
-        self.ent_buscar_persona.pack(side="left", padx=(15, 5))
-        self.ent_buscar_persona.bind("<Return>", lambda e: self.evento_buscar_persona())
-        ttk.Button(frame_botones, text="🔍 Buscar", command=self.evento_buscar_persona).pack(side="left", padx=5)
-
         frame_tabla = ttk.Frame(self.tab_personas)
         frame_tabla.pack(side="top", fill="both", expand=True, padx=10, pady=(0, 10))
 
@@ -462,10 +456,6 @@ class AplicacionBiblioteca:
         # Barra superior: búsqueda + botones que abren las ventanas + actualizar
         frame_barra = ttk.Frame(frame_tabla)
         frame_barra.pack(side="top", fill="x", padx=10, pady=5)
-        self.ent_buscar_prestamo = ttk.Entry(frame_barra, width=30)
-        self.ent_buscar_prestamo.pack(side="left", padx=(0, 5))
-        self.ent_buscar_prestamo.bind("<Return>", lambda e: self.evento_buscar_prestamo())
-        ttk.Button(frame_barra, text="🔍 Buscar", command=self.evento_buscar_prestamo).pack(side="left", padx=5)
         ttk.Button(frame_barra, text="☑ Registrar Préstamo", command=self.abrir_ventana_prestamo).pack(side="left", padx=5)
         ttk.Button(frame_barra, text="↩ Registrar Devolución", command=self.abrir_ventana_devolucion).pack(side="left", padx=5)
         ttk.Button(frame_barra, text="🔄 Actualizar Lista de Préstamos", command=self.evento_mostrar_personas_prestamos).pack(side="right")
@@ -712,20 +702,20 @@ class AplicacionBiblioteca:
             self.tree_libros.insert("", tk.END, values=(lib.get("id"), lib.get("titulo"), lib.get("autor"), lib.get("genero"), "SÍ" if lib.get("disponible") == "True" else "NO"))
 
     def evento_buscar_libro(self):
-        # Búsqueda combinada desde la barra superior: ID, título, autor o sinopsis
+        # Búsqueda semántica: compara el texto con las sinopsis guardadas en ChromaDB
         texto = self.ent_buscar_libro.get().strip()
         if not texto:
-            messagebox.showwarning("Atención", "Escribe un ID, título, autor o tema de la sinopsis para buscar.")
+            messagebox.showwarning("Atención", "Escribe de qué trata el libro que buscas.")
             return
 
         try:
-            resultados = bd.buscar_libros_general(texto)
+            resultados = bd.buscar_libro_semantico(texto)
         except Exception:
-            messagebox.showerror("Error", "Problema al buscar en la base de datos.")
+            messagebox.showerror("Error", "Problema al buscar en ChromaDB.")
             return
 
         if not resultados:
-            messagebox.showinfo("Sin resultados", f"No se encontró ningún libro con '{texto}'.")
+            messagebox.showinfo("Sin resultados", "No hay libros con sinopsis en el catálogo.")
             return
 
         self.limpiar_treeview(self.tree_libros)
@@ -769,20 +759,7 @@ class AplicacionBiblioteca:
             messagebox.showerror("Error", str(e))
 
     # --- LÓGICA DE PERSONAS ---
-    def evento_buscar_persona(self):
-        texto = self.ent_buscar_persona.get().strip()
-        if not texto:
-            messagebox.showwarning("Atención", "Escribe un ID, nombre, correo, teléfono o tipo de usuario para buscar.")
-            return
-        encontrados = self.evento_mostrar_todas_personas(filtro=texto)
-        if encontrados == 0:
-            messagebox.showinfo("Sin resultados", f"No se encontró ninguna persona con '{texto}'.")
-            self.evento_mostrar_todas_personas()
-
-    def evento_mostrar_todas_personas(self, filtro=""):
-        # Si se pasa un filtro, solo se muestran las personas que coinciden (sin distinguir mayúsculas)
-        filtro = filtro.strip().lower()
-        encontrados = 0
+    def evento_mostrar_todas_personas(self):
         self.limpiar_treeview(self.tree_personas)
         
         personas = bd.obtener_todas_personas()
@@ -807,13 +784,7 @@ class AplicacionBiblioteca:
             tel = security.desencriptar_texto(p.get("telefono", ""))
             tipo = security.desencriptar_texto(p.get("tipo_usuario", ""))
             
-            fila = (p.get("id"), nombre_completo, correo, tel, tipo)
-            if filtro:
-                if filtro != str(p.get("id", "")).lower() and not any(filtro in str(campo).lower() for campo in fila[1:]):
-                    continue
-            self.tree_personas.insert("", tk.END, values=fila)
-            encontrados += 1
-        return encontrados
+            self.tree_personas.insert("", tk.END, values=(p.get("id"), nombre_completo, correo, tel, tipo))
 
     def evento_modificar_persona(self):
         sel = self.tree_personas.selection()
@@ -828,34 +799,9 @@ class AplicacionBiblioteca:
                 break
 
     # --- LÓGICA DE PRÉSTAMOS ---
-    def evento_buscar_prestamo(self):
-        texto = self.ent_buscar_prestamo.get().strip()
-        if not texto:
-            messagebox.showwarning("Atención", "Escribe un ID de usuario, nombre o ID de libro para buscar.")
-            return
-        encontrados = self.evento_mostrar_personas_prestamos(filtro=texto)
-        if encontrados == 0:
-            messagebox.showinfo("Sin resultados", f"No se encontró ningún préstamo con '{texto}'.")
-            self.evento_mostrar_personas_prestamos()
-
-    def evento_mostrar_personas_prestamos(self, filtro=""):
-        # Con filtro: ID de usuario o libro exacto, o parte del nombre del usuario
-        filtro = filtro.strip().lower()
-        encontrados = 0
+    def evento_mostrar_personas_prestamos(self):
         self.limpiar_treeview(self.tabla_prestamos)
         fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")
         for r in bd.obtener_personas_con_prestamos():
-            if filtro:
-                nombre = ""
-                if r.get("nombre_encriptado"):
-                    try:
-                        nombre = security.desencriptar_texto(r["nombre_encriptado"]).lower()
-                    except Exception:
-                        pass
-                ids_libros = [str(l).lower() for l in r["libros"]]
-                if filtro != str(r["id_persona"]).lower() and filtro not in ids_libros and filtro not in nombre:
-                    continue
             # Mostramos el ID del usuario en la primera columna tal cual lo hace tu compañero
             self.tabla_prestamos.insert("", tk.END, values=(r["id_persona"], ", ".join(r["libros"]), fecha_hoy))
-            encontrados += 1
-        return encontrados

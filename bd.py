@@ -67,50 +67,10 @@ def obtener_sinopsis(id_libro):
         pass
     return ""
 
-def buscar_libros_general(texto):
-    # Búsqueda combinada: ID, título, autor (Redis) + sinopsis (Chroma).
-    # Devuelve primero las coincidencias directas y después las semánticas, sin duplicados.
-    texto = texto.strip()
-    texto_min = texto.lower()
-    resultados = []
-    ids_vistos = set()
-
-    def agregar(libro):
-        if libro and libro.get("id") not in ids_vistos:
-            ids_vistos.add(libro.get("id"))
-            resultados.append(libro)
-
-    # 1. ID exacto, o coincidencia parcial en título o autor (sin distinguir mayúsculas)
-    for libro in obtener_todos_libros():
-        id_libro = str(libro.get("id", "")).lower()
-        titulo = str(libro.get("titulo", "")).lower()
-        autor = str(libro.get("autor", "")).lower()
-        if texto_min == id_libro or texto_min in titulo or texto_min in autor:
-            agregar(libro)
-
-    # 2. Sinopsis que contengan el texto literalmente
-    try:
-        literales = coleccion_libros.get(where_document={"$contains": texto})
-        for id_libro in literales["ids"]:
-            libro = r.hgetall(f"libro:{id_libro}")
-            if libro:
-                libro["id"] = id_libro
-                agregar(libro)
-    except Exception:
-        pass
-
-    # 3. Sinopsis parecidas por significado (búsqueda semántica)
-    try:
-        if coleccion_libros.count() > 0:
-            for libro in buscar_libro_semantico(texto):
-                agregar(libro)
-    except Exception:
-        pass
-
-    return resultados
-
 def buscar_libro_semantico(query_texto):
     # Pedimos a Chroma que nos traiga los 5 libros más similares al texto
+    if coleccion_libros.count() == 0:
+        return []
     resultados = coleccion_libros.query(
         query_texts=[query_texto],
         n_results=min(5, coleccion_libros.count())
